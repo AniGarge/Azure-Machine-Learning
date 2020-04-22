@@ -1,0 +1,76 @@
+#!pip install azure-mgmt-sql
+
+import numpy as np
+
+from azure.mgmt.sql import SqlManagementClient
+
+#!pip install azureml
+
+from azureml.core import Workspace
+
+# This config.json was downloaded from the machine learning workspace that is created on Azure.
+ws=Workspace.from_config('C:/Users/13157/Desktop/Fourth Semester/DP 100/config.json')
+
+from azureml.core import Experiment
+
+exp=Experiment(ws,name='diabetes-experiment')
+
+from azureml.opendatasets import Diabetes
+from sklearn.model_selection import train_test_split
+
+x_df = Diabetes.get_tabular_dataset().to_pandas_dataframe().dropna()
+y_df = x_df.pop("Y")
+
+X_train, X_test, y_train, y_test = train_test_split(x_df, y_df, test_size=0.2, random_state=66)
+
+from sklearn.linear_model import Ridge
+from sklearn.metrics import mean_squared_error
+from sklearn.externals import joblib
+import math
+
+alphas = [0.0001,0.001,0.01,0.1,1]
+
+for alpha in alphas:
+    run = exp.start_logging(snapshot_directory=None)
+    run.log("alpha_value", alpha)
+
+    model = Ridge(alpha=alpha)
+    model.fit(X=X_train, y=y_train)
+    y_pred = model.predict(X=X_test)
+    rmse = math.sqrt(mean_squared_error(y_true=y_test, y_pred=y_pred))
+    run.log("rmse", rmse)
+
+    model_name = "model_alpha_" + str(alpha) + ".pkl"
+    filename = "outputs/" + model_name
+
+    joblib.dump(value=model, filename=filename)
+    run.upload_file(name=model_name, path_or_stream=filename)
+    run.complete()
+    
+# Provides a link on the azureML platform where experiment is run.
+exp
+
+minimum_rmse_runid = None
+minimum_rmse = None
+
+for run in exp.get_runs():
+    run_metrics = run.get_metrics()
+    #print(run_metrics)
+    run_details = run.get_details()
+    #print(run_details)
+    # each logged metric becomes a key in this returned dict
+    run_rmse = run_metrics["rmse"]
+    #run_id = run_details["runId"]
+
+    if minimum_rmse is None:
+        minimum_rmse = run_rmse
+        minimum_rmse_runid = run_id
+    else:
+        if run_rmse < minimum_rmse:
+            minimum_rmse = run_rmse
+            minimum_rmse_runid = run_id
+
+print("Best run_id: " + minimum_rmse_runid)
+
+print("Best run_id rmse: " + str(minimum_rmse))
+
